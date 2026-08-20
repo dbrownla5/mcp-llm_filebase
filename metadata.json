@@ -1,0 +1,6 @@
+{
+  "name": "Claude Desktop MCP & Multi-Agent Protocol Command Center",
+  "description": "Comprehensive operating system, 21-agent logical architecture, Cloudflare MCP protocol suite, zero-truth verification gateway, and interactive guidekit for Claude Desktop.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
