@@ -10,10 +10,30 @@ import { ExportModal } from "./components/ExportModal";
 import { AgentDefinition, RollingMemoryItem } from "./types";
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<"agents" | "sandbox" | "engines" | "mcp" | "guide" | "export">("agents");
+  const [activeTab, setActiveTab] = useState<"agents" | "sandbox" | "engines" | "mcp" | "guide" | "export">("sandbox");
   const [selectedAgentForModal, setSelectedAgentForModal] = useState<AgentDefinition | null>(null);
   const [sandboxTargetAgent, setSandboxTargetAgent] = useState<AgentDefinition | null>(null);
   const [isExportOpen, setIsExportOpen] = useState<boolean>(false);
+
+  // Secure Passcode Portal Gate (Zero-config local security)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
+    return localStorage.getItem("dayna_portal_unlocked") === "true";
+  });
+  const [passcodeInput, setPasscodeInput] = useState<string>("");
+  const [authError, setAuthError] = useState<string>("");
+
+  const handleUnlock = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPass = passcodeInput.trim().toLowerCase();
+    // Accept user preference codes (310, dayna-mcp, dayna310)
+    if (cleanPass === "310" || cleanPass === "dayna-mcp" || cleanPass === "dayna310") {
+      localStorage.setItem("dayna_portal_unlocked", "true");
+      setIsAuthenticated(true);
+      setAuthError("");
+    } else {
+      setAuthError("Invalid master passcode. Access denied.");
+    }
+  };
 
   // Shared 5-in / 5-out active memory matrix
   const [activeMemoryList, setActiveMemoryList] = useState<RollingMemoryItem[]>([
@@ -68,6 +88,64 @@ export function App() {
     setSandboxTargetAgent(agent);
     setActiveTab("sandbox");
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neutral-100/50 p-6">
+        <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-8 shadow-md">
+          <div className="text-center mb-6">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-neutral-900 text-white shadow-sm mb-4">
+              <span className="text-xl font-bold text-amber-400">D</span>
+            </div>
+            <h2 className="text-xl font-bold tracking-tight text-neutral-900">
+              Secure Gatekeeper Portal
+            </h2>
+            <p className="mt-1 text-xs text-neutral-500">
+              Dayna Multi-Agent Operating System Workspace
+            </p>
+          </div>
+
+          <form onSubmit={handleUnlock} className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-neutral-700 mb-1">
+                Master Passcode
+              </label>
+              <input
+                type="password"
+                required
+                value={passcodeInput}
+                onChange={(e) => {
+                  setPasscodeInput(e.target.value);
+                  setAuthError("");
+                }}
+                placeholder="••••"
+                className="w-full rounded-xl border border-neutral-200 bg-white p-3 text-center text-sm tracking-widest focus:border-neutral-900 focus:outline-none"
+              />
+            </div>
+
+            {authError && (
+              <p className="text-xs text-red-600 font-medium text-center">
+                {authError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              className="w-full rounded-xl bg-neutral-900 py-3 text-xs font-bold text-white hover:bg-neutral-800 transition-colors shadow-sm"
+            >
+              Unlock Dashboard
+            </button>
+          </form>
+
+          <div className="mt-6 border-t border-neutral-100 pt-4 text-center">
+            <p className="text-[11px] text-neutral-400">
+              For security, this workspace runs locally or in isolated sandboxes.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-100/50 text-neutral-900 font-sans antialiased selection:bg-neutral-900 selection:text-white">

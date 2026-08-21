@@ -52,8 +52,8 @@ For an executive with high Quick Start velocity (Kolbe 6-4-9-3), the agent ecosy
        └──────────────────────┼───────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│               CLOUDFLARE MCP SERVER (master-mcp)            │
-│    • R2 Bucket: comet  • D1 Database  • KV Rolling Memory   │
+│               PRODUCTION MCP SERVER (master-mcp)            │
+│   • Storage Container: comet  • Relational DB  • Cache KV   │
 └─────────────────────────────────────────────────────────────┘
 \`\`\`
 `
@@ -145,7 +145,7 @@ Context bloat is the #1 killer of LLM reliability. We enforce a strict FIFO wind
       "Phase 1: Handshake & MCP Bridge Confirmation.",
       "Phase 2: Domain-Isolated Evidence Indexing.",
       "Phase 3: Two-Column Dispute Ledger Generation.",
-      "Phase 4: Final Deliverable Packaging into R2 'comet'."
+      "Phase 4: Final Deliverable Packaging into Secure Storage 'comet'."
     ],
     contentMarkdown: `### How to Execute Overnight in Claude Desktop
 
@@ -157,7 +157,7 @@ Copy and paste this master prompt into a fresh Claude Desktop conversation:
 
 \`\`\`markdown
 You are the MASTER ORCHESTRATOR operating the Dayna Multi-Agent System.
-Connect to the master-mcp Cloudflare bridge (https://mcp.thewelllivedcitizenco.com/mcp) and execute the OVERNIGHT PROTOCOL:
+Connect to the master-mcp production bridge (https://mcp.thewelllivedcitizenco.com/api/mcp) and execute the OVERNIGHT PROTOCOL:
 
 PHASE 1: Verify tool connections and active 5-rule memory window.
 PHASE 2: For each isolated domain (Domain 1: SVP, Domain 2: WA Benefits, Domain 3: Landlords/Flood, Domain 4: Patent, Domain 5: WLC):
@@ -166,7 +166,7 @@ PHASE 2: For each isolated domain (Domain 1: SVP, Domain 2: WA Benefits, Domain 
   - Calculate reconciled mathematical totals.
 PHASE 3: Generate the 3 Sharp Forks (Safe, Bold, Disruptive) for each domain.
 PHASE 4: Run the 4-dimension rubric scoring pass (force rewrite if < 80).
-PHASE 5: Commit final signed packages to Cloudflare R2 'comet' and output the executive morning brief.
+PHASE 5: Commit final signed packages to secure storage container 'comet' and output the executive morning brief.
 \`\`\`
 `
   }

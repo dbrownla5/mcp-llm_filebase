@@ -174,17 +174,20 @@ export const MCP_TOOLS_LIST: MCPToolDef[] = [
 ];
 
 export const CLOUDFLARE_WORKER_CODE = `/**
- * CLOUDFLARE WORKER: master-mcp
- * Endpoint: https://mcp.thewelllivedcitizenco.com/mcp
+ * PRODUCTION SERVER: master-mcp (Express/Node.js)
+ * Endpoint: https://mcp.thewelllivedcitizenco.com/api/mcp
  * Protocols: MCP JSON-RPC 2.0, Two-Column Provenance Gateway, Domain Isolation Firewall
  */
 
-export interface Env {
-  COMET: R2Bucket;
-  D1_DB: D1Database;
-  ACTIVE_MEMORY_KV: KVNamespace;
-  MCP_AUTH_SECRET: string;
-}
+import express from "express";
+import fs from "fs/promises";
+import path from "path";
+
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+const AUTH_SECRET = process.env.MCP_AUTH_SECRET || "DAYNA_MCP_BEARER_SECRET_KEY";
 
 const ALLOWED_DOMAINS = [
   "DOMAIN_1_SVP",
@@ -194,147 +197,175 @@ const ALLOWED_DOMAINS = [
   "DOMAIN_5_WLC_BIZ"
 ];
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // 1. CORS Preflight
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization, X-MCP-Domain"
+// 1. CORS Middleware
+app.use((req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-MCP-Domain");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// 2. Health check
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ONLINE",
+    gateway: "Production Master MCP Server",
+    domainsIsolated: ALLOWED_DOMAINS.length,
+    storageType: "Persistent Secure Containers",
+    timestamp: new Date().toISOString()
+  });
+});
+
+// 3. Security: Auth Token Validation
+app.use("/api/mcp", (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ") || authHeader.split(" ")[1] !== AUTH_SECRET) {
+    return res.status(401).json({
+      jsonrpc: "2.0",
+      error: { code: -32600, message: "Unauthorized: Valid Bearer token required." }
+    });
+  }
+  next();
+});
+
+// 4. MCP JSON-RPC 2.0 Router
+app.post("/api/mcp", async (req, res) => {
+  try {
+    const { id, method, params } = req.body;
+
+    switch (method) {
+      case "tools/list":
+        return res.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            tools: [
+              {
+                name: "domain_read_file",
+                description: "Reads verified files from secure persistent containers within isolated domain boundaries.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    domainCode: { type: "string", enum: ALLOWED_DOMAINS },
+                    filePath: { type: "string" }
+                  },
+                  required: ["domainCode", "filePath"]
+                }
+              },
+              {
+                name: "verify_provenance_row",
+                description: "Enforces Two-Column validation between claim and persistent storage file.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    claim: { type: "string" },
+                    sourcePath: { type: "string" },
+                    domainCode: { type: "string" }
+                  },
+                  required: ["claim", "sourcePath", "domainCode"]
+                }
+              },
+              {
+                name: "get_active_memory_window",
+                description: "Gets the 5 active operational axioms from the persistence layer.",
+                inputSchema: { type: "object", properties: {} }
+              }
+            ]
+          }
+        });
+
+      case "tools/call": {
+        const { name, arguments: args } = params;
+
+        if (name === "domain_read_file") {
+          const { domainCode, filePath } = args;
+          if (!ALLOWED_DOMAINS.includes(domainCode)) {
+            throw new Error(\`Domain violation: \\\${domainCode} is not an authorized isolation boundary.\`);
+          }
+          
+          // Securely resolve paths relative to storage container directory
+          const containerRoot = process.env.STORAGE_CONTAINER_ROOT || "./storage";
+          const safePath = path.normalize(filePath).replace(/^(\.\.(\/|\\|$))+/, '');
+          const fullPath = path.join(containerRoot, domainCode.toLowerCase(), safePath);
+
+          try {
+            const content = await fs.readFile(fullPath, "utf-8");
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: { content: [{ type: "text", text: content }] }
+            });
+          } catch (e) {
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: { content: [{ type: "text", text: \`[FILE_NOT_FOUND: \\\${filePath}]\` }] }
+            });
+          }
         }
-      });
-    }
 
-    // 2. Health check
-    if (request.method === "GET" && new URL(request.url).pathname === "/health") {
-      return Response.json({
-        status: "ONLINE",
-        gateway: "Cloudflare Master MCP Bridge",
-        domainsIsolated: ALLOWED_DOMAINS.length,
-        r2Bucket: "comet",
-        timestamp: new Date().toISOString()
-      });
-    }
+        if (name === "verify_provenance_row") {
+          const { claim, sourcePath, domainCode } = args;
+          const containerRoot = process.env.STORAGE_CONTAINER_ROOT || "./storage";
+          const safePath = path.normalize(sourcePath).replace(/^(\.\.(\/|\\|$))+/, '');
+          const fullPath = path.join(containerRoot, domainCode.toLowerCase(), safePath);
 
-    // 3. Security: Auth Token Validation
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return Response.json({ jsonrpc: "2.0", error: { code: -32600, message: "Unauthorized: Valid Bearer token required." } }, { status: 401 });
-    }
+          let verified = false;
+          try {
+            await fs.access(fullPath);
+            verified = true;
+          } catch {}
 
-    try {
-      const payload = await request.json();
-      const { id, method, params } = payload;
-
-      // Handle JSON-RPC 2.0 MCP Methods
-      switch (method) {
-        case "tools/list":
-          return Response.json({
+          return res.json({
             jsonrpc: "2.0",
             id,
             result: {
-              tools: [
-                {
-                  name: "domain_read_file",
-                  description: "Reads verified files from R2 comet within domain boundaries.",
-                  inputSchema: {
-                    type: "object",
-                    properties: {
-                      domainCode: { type: "string", enum: ALLOWED_DOMAINS },
-                      filePath: { type: "string" }
-                    },
-                    required: ["domainCode", "filePath"]
-                  }
-                },
-                {
-                  name: "verify_provenance_row",
-                  description: "Enforces Two-Column validation between claim and R2 file.",
-                  inputSchema: {
-                    type: "object",
-                    properties: {
-                      claim: { type: "string" },
-                      sourcePath: { type: "string" },
-                      domainCode: { type: "string" }
-                    },
-                    required: ["claim", "sourcePath", "domainCode"]
-                  }
-                },
-                {
-                  name: "get_active_memory_window",
-                  description: "Gets the 5 active operational axioms.",
-                  inputSchema: { type: "object", properties: {} }
-                }
-              ]
+              content: [{
+                type: "text",
+                text: JSON.stringify({ claim, sourcePath, verified, verifiedAt: new Date().toISOString() })
+              }]
             }
           });
-
-        case "tools/call": {
-          const { name, arguments: args } = params;
-
-          if (name === "domain_read_file") {
-            const { domainCode, filePath } = args;
-            if (!ALLOWED_DOMAINS.includes(domainCode)) {
-              throw new Error(\`Domain violation: \${domainCode} is not an authorized isolation boundary.\`);
-            }
-            const fullR2Key = \`domains/\${domainCode.toLowerCase()}/\${filePath}\`;
-            const object = await env.COMET.get(fullR2Key);
-            if (!object) {
-              return Response.json({
-                jsonrpc: "2.0",
-                id,
-                result: { content: [{ type: "text", text: \`[FILE_NOT_FOUND: \${fullR2Key}]\` }] }
-              });
-            }
-            const text = await object.text();
-            return Response.json({
-              jsonrpc: "2.0",
-              id,
-              result: { content: [{ type: "text", text }] }
-            });
-          }
-
-          if (name === "verify_provenance_row") {
-            const { claim, sourcePath, domainCode } = args;
-            const fullR2Key = sourcePath.startsWith("domains/") ? sourcePath : \`domains/\${domainCode.toLowerCase()}/\${sourcePath}\`;
-            const obj = await env.COMET.head(fullR2Key);
-            const verified = Boolean(obj);
-            return Response.json({
-              jsonrpc: "2.0",
-              id,
-              result: {
-                content: [{
-                  type: "text",
-                  text: JSON.stringify({ claim, sourcePath: fullR2Key, verified, verifiedAt: new Date().toISOString() })
-                }]
-              }
-            });
-          }
-
-          if (name === "get_active_memory_window") {
-            const rawMemory = await env.ACTIVE_MEMORY_KV.get("active_5_rules");
-            const activeRules = rawMemory ? JSON.parse(rawMemory) : [];
-            return Response.json({
-              jsonrpc: "2.0",
-              id,
-              result: {
-                content: [{ type: "text", text: JSON.stringify({ activeRules, count: activeRules.length, max: 5 }) }]
-              }
-            });
-          }
-
-          throw new Error(\`Unknown tool: \${name}\`);
         }
 
-        default:
-          return Response.json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } }, { status: 404 });
+        if (name === "get_active_memory_window") {
+          // Retrieves active rules from relational database or local JSON file
+          let activeRules = [];
+          try {
+            const memoryPath = path.join(process.env.STORAGE_CONTAINER_ROOT || "./storage", "active_memory.json");
+            const data = await fs.readFile(memoryPath, "utf-8");
+            activeRules = JSON.parse(data);
+          } catch {
+            activeRules = [
+              { id: "mem_1", axiom: "Single Front Door active.", domain: "GLOBAL_GOVERNANCE", rubricScore: 98 }
+            ];
+          }
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              content: [{ type: "text", text: JSON.stringify({ activeRules, count: activeRules.length, max: 5 }) }]
+            }
+          });
+        }
+
+        throw new Error(\`Unknown tool: \\\${name}\`);
       }
-    } catch (err: any) {
-      return Response.json({ jsonrpc: "2.0", error: { code: -32000, message: err.message } }, { status: 500 });
+
+      default:
+        return res.status(404).json({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
     }
+  } catch (err: any) {
+    return res.status(500).json({ jsonrpc: "2.0", error: { code: -32000, message: err.message } });
   }
-};`;
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(\`MCP Production Server listening on port \\\${PORT}\`);
+});`;
 
 export const STDIO_BRIDGE_SCRIPT = `#!/usr/bin/env node
 /**
